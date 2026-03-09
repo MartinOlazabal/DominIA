@@ -1,0 +1,145 @@
+// Configuración de Prisma para PostgreSQL (Neon)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Modelo de Usuario
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  password      String
+  name          String?
+  role          String   @default("USER") // USER o ADMIN
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Perfil de aprendizaje
+  profile       UserProfile?
+  
+  // Suscripción
+  subscription  Subscription?
+  
+  // Historial de chat
+  messages      ChatMessage[]
+  
+  // Progreso por instancia/categoría
+  userProgress  UserProgress[]
+}
+
+// Perfil de Aprendizaje Dinámico
+model UserProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id])
+  
+  abstractionLevel  Int      @default(1) // 1-5
+  preferredStyle    String   @default("detailed") // detailed, concise
+  topicsMastered    String   @default("[]") // JSON array de strings
+  topicsStruggling  String   @default("[]") // JSON array de strings
+  
+  statsExercises    Int      @default(0)
+  statsCorrect      Int      @default(0)
+  statsTimeSpent    Int      @default(0) // En minutos
+}
+
+// Gestión de Suscripciones
+model Subscription {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id])
+  
+  status        String   @default("trial") // trial, active, canceled, expired
+  stripeId      String?
+  expiresAt     DateTime
+}
+
+// Materias (Cálculo 1, CDIV, etc.)
+model Subject {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  // Código corto usado en URLs y lógica interna (ej: "calculo1")
+  code        String?  @unique
+  description String?
+  icon        String?  // Nombre del icono de Lucide
+  // Facultad a la que pertenece (ej: "FING")
+  faculty     String?  @default("FING")
+  createdAt   DateTime @default(now())
+  // @default(now()) permite que filas existentes en la BD tengan valor en la migración
+  updatedAt   DateTime @default(now()) @updatedAt
+  
+  categories  Category[]
+}
+
+// Instancias / Categorías de Preparación (Práctico, Primer Parcial, etc.)
+model Category {
+  id          String   @id @default(uuid())
+  name        String   // Ej: "Primer Parcial"
+  // Tipo de instancia: determina el foco del tutor IA
+  // Valores: "practico" | "primer_parcial" | "segundo_parcial" | "examen"
+  type        String?  @default("practico")
+  // Orden de aparición en la UI (1 = primero)
+  order       Int      @default(0)
+  subjectId   String
+  subject     Subject  @relation(fields: [subjectId], references: [id])
+  
+  knowledge   KnowledgeBase[]
+  // Progreso de los usuarios en esta instancia
+  userProgress UserProgress[]
+}
+
+// Base de Conocimiento (Fragmentos de texto de PDFs)
+model KnowledgeBase {
+  id          String   @id @default(uuid())
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  
+  content     String   // El texto extraído
+  source      String?  // Nombre del archivo original
+  embedding   String?  // Para futura búsqueda semántica (JSON array)
+  createdAt   DateTime @default(now())
+}
+
+// Progreso del usuario por materia/instancia
+// Permite que la IA adapte sus respuestas según el avance del estudiante
+model UserProgress {
+  id                  String    @id @default(uuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id])
+  categoryId          String
+  category            Category  @relation(fields: [categoryId], references: [id])
+
+  // Nivel de comprensión del estudiante (1=básico, 5=avanzado)
+  level               Int       @default(1)
+  // JSON array de strings: temas que el estudiante domina
+  topicsMastered      String    @default("[]")
+  // JSON array de strings: temas con dificultad
+  topicsStruggling    String    @default("[]")
+  // Contador de interacciones totales en esta instancia
+  interactionsCount   Int       @default(0)
+  // Fecha de última interacción (null = nunca interactuó)
+  lastInteractionAt   DateTime?
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Un único registro por combinación usuario+categoría
+  @@unique([userId, categoryId])
+}
+
+// Historial de Mensajes
+model ChatMessage {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  role        String   // user o assistant
+  content     String
+  subjectId   String?
+  categoryId  String?
+  createdAt   DateTime @default(now())
+}
