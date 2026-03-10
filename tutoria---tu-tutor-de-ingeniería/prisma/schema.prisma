@@ -10,13 +10,15 @@ datasource db {
 
 // Modelo de Usuario
 model User {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  password      String
-  name          String?
-  role          String   @default("USER") // USER o ADMIN
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id               String    @id @default(uuid())
+  email            String    @unique
+  password         String
+  name             String?
+  role             String    @default("USER") // USER o ADMIN
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  // Timestamp de la última vez que el usuario envió un mensaje (para lógica de saludo inteligente)
+  lastInteraction  DateTime?
 
   // Perfil de aprendizaje
   profile       UserProfile?
@@ -45,6 +47,9 @@ model UserProfile {
   statsExercises    Int      @default(0)
   statsCorrect      Int      @default(0)
   statsTimeSpent    Int      @default(0) // En minutos
+  // Últimos 20 ejercicios: [{ exerciseId, correct, topic, timestamp }]
+  // Se limita para no sobrecargar el prompt de la IA
+  exercisesHistory  String   @default("[]")
 }
 
 // Gestión de Suscripciones
@@ -60,17 +65,19 @@ model Subscription {
 
 // Materias (Cálculo 1, CDIV, etc.)
 model Subject {
-  id          String   @id @default(uuid())
-  name        String   @unique
+  id              String   @id @default(uuid())
+  name            String   @unique
   // Código corto usado en URLs y lógica interna (ej: "calculo1")
-  code        String?  @unique
-  description String?
-  icon        String?  // Nombre del icono de Lucide
+  code            String?  @unique
+  description     String?
+  icon            String?  // Nombre del icono de Lucide
   // Facultad a la que pertenece (ej: "FING")
-  faculty     String?  @default("FING")
-  createdAt   DateTime @default(now())
+  faculty         String?  @default("FING")
+  // Contenido de fórmulas en Markdown/LaTeX (editable por admin, sin consumo de IA)
+  formulasContent String?
+  createdAt       DateTime @default(now())
   // @default(now()) permite que filas existentes en la BD tengan valor en la migración
-  updatedAt   DateTime @default(now()) @updatedAt
+  updatedAt       DateTime @default(now()) @updatedAt
   
   categories  Category[]
 }

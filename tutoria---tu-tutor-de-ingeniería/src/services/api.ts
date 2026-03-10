@@ -55,15 +55,23 @@ export const dataService = {
   },
 
   // Envía un mensaje al tutor IA con el contexto de materia e instancia
-  async sendMessage(message: string, subjectId: string, categoryId: string) {
-    console.log('[sendMessage] Enviando:', { message, subjectId, categoryId });
+  // El parámetro 'mode' activa instrucciones específicas en la IA (vf, multiple, demo, teorico)
+  // El parámetro 'topic' restringe el ejercicio a un tema concreto (opcional)
+  async sendMessage(
+    message: string,
+    subjectId: string,
+    categoryId: string,
+    mode?: 'vf' | 'multiple' | 'demo' | 'teorico' | null,
+    topic?: string | null
+  ) {
+    console.log('[sendMessage] Enviando:', { message, subjectId, categoryId, mode, topic });
     const res = await fetch(`${API_URL}/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${authService.getToken()}`
       },
-      body: JSON.stringify({ message, subjectId, categoryId }),
+      body: JSON.stringify({ message, subjectId, categoryId, mode, topic }),
     });
     console.log('[sendMessage] Status respuesta:', res.status);
     const data = await res.json();
@@ -104,6 +112,23 @@ export const dataService = {
       body: JSON.stringify({ categoryId, ...data })
     });
     return res.json();
+  },
+
+  // Obtiene el contenido de fórmulas de una materia (sin consumo de IA).
+  // El resultado se puede cachear en el frontend para evitar llamadas repetidas.
+  async getFormulas(subjectId: string): Promise<{ subjectId: string; name: string; content: string }> {
+    // Intentamos leer desde el caché local primero
+    const cacheKey = `formulas-${subjectId}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try { return JSON.parse(cached); } catch {}
+    }
+    const res = await fetch(`${API_URL}/subject/${subjectId}/formulas`);
+    if (!res.ok) throw new Error("No se pudieron obtener las fórmulas");
+    const data = await res.json();
+    // Guardar en caché para no recargar en cada apertura del panel
+    localStorage.setItem(cacheKey, JSON.stringify(data));
+    return data;
   }
 };
 

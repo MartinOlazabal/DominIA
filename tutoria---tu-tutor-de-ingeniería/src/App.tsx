@@ -35,6 +35,9 @@ import {
   Area
 } from 'recharts';
 import { authService, dataService, adminService } from './services/api';
+import { MathRenderer } from './components/MathRenderer';
+import { StudyModeButtons, StudyMode } from './components/StudyModeButtons';
+import { FormulasPanel } from './components/FormulasPanel';
 
 // --- COMPONENTES UI ---
 
@@ -418,10 +421,12 @@ const Chat = ({ subject, onBack }: any) => {
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  // Loading específico para la carga del mensaje de bienvenida
   const [welcomeLoading, setWelcomeLoading] = useState(false);
-  // Mapa de progreso por categoryId: { [id]: progressData }
   const [progressMap, setProgressMap] = useState<Record<string, any>>({});
+  // Modo de estudio activo (null = chat libre, 'vf', 'multiple', 'demo', 'teorico')
+  const [activeMode, setActiveMode] = useState<StudyMode | null>(null);
+  // Controla si el panel de fórmulas está abierto
+  const [formulasOpen, setFormulasOpen] = useState(false);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
   // Al entrar a la pantalla de selección, cargar el progreso de todas las instancias
@@ -470,6 +475,31 @@ const Chat = ({ subject, onBack }: any) => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  // Activa un modo de estudio: inyecta un mensaje de sistema en el chat
+  // que indica a la IA cómo comportarse y le muestra al usuario las opciones
+  const handleModeChange = (mode: StudyMode) => {
+    // Alternar: si el modo ya está activo, lo desactiva (chat libre)
+    if (activeMode === mode) {
+      setActiveMode(null);
+      return;
+    }
+    setActiveMode(mode);
+
+    // Mensajes iniciales que el tutor envió al activar el modo
+    const modeIntro: Record<StudyMode, string> = {
+      vf: '**Modo Verdadero o Falso activado** ✅\n\nPuedo generar afirmaciones al estilo de examen real para que me digas si son verdaderas o falsas, y después te explico el por qué en detalle.\n\n¿Qué preferís?\n\n• Escribí un **tema** (ej: "Límites", "Derivadas", "Integrales")\n• O escribí **"mixto"** para un simulacro con temas variados',
+      multiple: '**Modo Múltiple Opción activado** 📝\n\nVoy a presentarte preguntas con 4 opciones (A, B, C, D) y expilicé las correctas e incorrectas.\n\n¿Qué preferís?\n\n• Escribí un **tema** (ej: "Límites", "Derivadas")\n• O escribí **"mixto"** para mode de examen con temas variados',
+      demo: '**Modo Demostraciones activado** ⚖️\n\nPuedo guiarte paso a paso por la demostración de cualquier teorema o propiedad.\n\nEscribí el **teorema o propiedad** que querés demostrar (ej: "derivada de x^n", "teorema del sándwich")',
+      teorico: '**Modo Teórico activado** 📖\n\nVamos a repasar conceptos con explicaciones claras y analogías.\n\nEscribí el **tema** que querés repasar, o escribí **"sugerir"** para que te recomiende temas según tu perfil.',
+      formulas: '', // No se usa aquí, abre el panel directamente
+    };
+
+    setMessages(prev => [
+      ...prev,
+      { role: 'assistant', content: modeIntro[mode], isModeIntro: true }
+    ]);
+  };
+
   const handleSend = async () => {
     if (!input.trim() || loading) return;
 
@@ -479,8 +509,8 @@ const Chat = ({ subject, onBack }: any) => {
     setLoading(true);
 
     try {
-      // Enviar al backend con contexto de materia e instancia
-      const res = await dataService.sendMessage(input, subject.id, category.id);
+      // Envíamos el modo activo y el topic al backend para que ajuste el system prompt
+      const res = await dataService.sendMessage(input, subject.id, category.id, activeMode, null);
       setMessages(prev => [...prev, { role: 'assistant', content: res.text }]);
     } catch (err: any) {
       console.error('[Chat] Error al enviar mensaje:', err);
@@ -590,9 +620,18 @@ const Chat = ({ subject, onBack }: any) => {
     );
   }
 
-  // ── Pantalla de chat ─────────────────────────────────────────────────────────
+  // ── Pantalla de chat ──────────────────────────────────────────────────────────────────
   return (
     <div className="h-screen flex flex-col bg-gray-50">
+      {/* Panel de fórmulas (modal, sin consumo de IA) */}
+      {formulasOpen && (
+        <FormulasPanel
+          subjectId={subject.id}
+          subjectName={subject.name}
+          onClose={() => setFormulasOpen(false)}
+        />
+      )}
+
       {/* Header con materia, instancia y estado */}
       <header className="bg-white border-b px-8 py-4 flex justify-between items-center">
         <div className="flex items-center gap-4">
@@ -607,7 +646,6 @@ const Chat = ({ subject, onBack }: any) => {
             <h3 className="font-bold text-gray-900">{subject.name}</h3>
             <div className="flex items-center gap-2">
               <p className="text-xs text-indigo-600 font-bold uppercase tracking-wider">{category.name}</p>
-              {/* Indicador de progreso en el header */}
               {progressMap[category.id]?.interactionsCount > 0 && (
                 <span className="text-[10px] bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded-full font-semibold">
                   Nivel {progressMap[category.id]?.level || 1}/5
@@ -622,84 +660,113 @@ const Chat = ({ subject, onBack }: any) => {
         </div>
       </header>
 
-      {/* Área de mensajes */}
-      <div className="flex-1 overflow-y-auto p-8 space-y-6">
+      {/* Layout principal: sidebar de modos + área de chat */}
+      <div className="flex flex-1 overflow-hidden">
 
-        {/* Estado de carga del mensaje de bienvenida */}
-        {welcomeLoading && (
-          <div className="flex justify-start">
-            <div className="bg-white border border-gray-100 px-5 py-4 rounded-2xl flex items-center gap-3 text-gray-500 text-sm shadow-sm">
-              <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
-              Preparando tu tutor personalizado...
-            </div>
-          </div>
-        )}
+        {/* Barra lateral de modos de estudio */}
+        <aside className="w-52 bg-white border-r flex-col hidden md:flex shrink-0 overflow-y-auto">
+          <StudyModeButtons
+            activeMode={activeMode}
+            onModeChange={handleModeChange}
+            onFormulasOpen={() => setFormulasOpen(true)}
+          />
+        </aside>
 
-        {/* Lista de mensajes */}
-        {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            {/* Avatar del asistente */}
-            {m.role === 'assistant' && (
-              <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center mr-3 shrink-0 mt-1">
-                <BrainCircuit className="text-white w-4 h-4" />
+        {/* Columna derecha: mensajes + input */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Área de mensajes */}
+          <div className="flex-1 overflow-y-auto p-8 space-y-6">
+
+            {/* Estado de carga del mensaje de bienvenida */}
+            {welcomeLoading && (
+              <div className="flex justify-start">
+                <div className="bg-white border border-gray-100 px-5 py-4 rounded-2xl flex items-center gap-3 text-gray-500 text-sm shadow-sm">
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                  Preparando tu tutor personalizado...
+                </div>
               </div>
             )}
-            <div className={`max-w-[70%] p-4 rounded-2xl shadow-sm ${m.role === 'user'
-              ? 'bg-indigo-600 text-white'
-              : m.isError
-                ? 'bg-red-50 border border-red-100 text-red-700'
-                : m.isWelcome
-                  ? 'bg-gradient-to-br from-indigo-50 to-white border border-indigo-100 text-gray-800'
-                  : 'bg-white border border-gray-100 text-gray-800'
-              }`}>
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
-            </div>
-          </div>
-        ))}
 
-        {/* Indicador de "escribiendo..." */}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center mr-3 shrink-0">
-              <BrainCircuit className="text-white w-4 h-4" />
-            </div>
-            <div className="bg-white border border-gray-100 p-4 rounded-2xl flex gap-1.5 items-center shadow-sm">
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" />
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:100ms]" />
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:200ms]" />
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+            {/* Lista de mensajes */}
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {m.role === 'assistant' && (
+                  <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center mr-3 shrink-0 mt-1">
+                    <BrainCircuit className="text-white w-4 h-4" />
+                  </div>
+                )}
+                <div className={`max-w-[70%] p-4 rounded-2xl shadow-sm ${m.role === 'user'
+                  ? 'bg-indigo-600 text-white'
+                  : m.isError
+                    ? 'bg-red-50 border border-red-100 text-red-700'
+                    : m.isWelcome || m.isModeIntro
+                      ? 'bg-gradient-to-br from-indigo-50 to-white border border-indigo-100 text-gray-800'
+                      : 'bg-white border border-gray-100 text-gray-800'
+                  }`}>
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap"><MathRenderer text={m.content} /></div>
+                </div>
+              </div>
+            ))}
 
-      {/* Input de chat */}
-      <div className="p-6 bg-white border-t">
-        <div className="max-w-4xl mx-auto relative">
-          <textarea
-            rows={1}
-            placeholder={`Pregúntame sobre ${subject.name} - ${category.name}...`}
-            className="w-full pl-6 pr-16 py-4 bg-gray-50 rounded-2xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none resize-none text-sm"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || loading || welcomeLoading}
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 transition-all"
-          >
-            <Send className="w-4 h-4" />
-          </button>
+            {/* Indicador de "escribiendo..." */}
+            {loading && (
+              <div className="flex justify-start">
+                <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center mr-3 shrink-0">
+                  <BrainCircuit className="text-white w-4 h-4" />
+                </div>
+                <div className="bg-white border border-gray-100 p-4 rounded-2xl flex gap-1.5 items-center shadow-sm">
+                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" />
+                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:100ms]" />
+                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:200ms]" />
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input de chat */}
+          <div className="p-6 bg-white border-t">
+            {/* Indicador del modo activo */}
+            {activeMode && activeMode !== 'formulas' && (
+              <div className="max-w-4xl mx-auto mb-3 flex items-center justify-between">
+                <span className="text-xs text-indigo-600 font-semibold bg-indigo-50 px-3 py-1 rounded-full">
+                  Modo activo: {activeMode === 'vf' ? 'V/F' : activeMode === 'multiple' ? 'Múltiple Opción' : activeMode === 'demo' ? 'Demostraciones' : 'Teórico'}
+                </span>
+                <button
+                  onClick={() => setActiveMode(null)}
+                  className="text-xs text-gray-400 hover:text-gray-600 underline"
+                >
+                  Desactivar modo
+                </button>
+              </div>
+            )}
+            <div className="max-w-4xl mx-auto relative">
+              <textarea
+                rows={1}
+                placeholder={`Preguntame sobre ${subject.name} - ${category.name}...`}
+                className="w-full pl-6 pr-16 py-4 bg-gray-50 rounded-2xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none resize-none text-sm"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || loading || welcomeLoading}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 transition-all"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-center text-[10px] text-gray-400 mt-3 uppercase tracking-widest font-bold">
+              TutorIA · Gemini Flash · RAG Activo · {subject.name} / {category.name}
+            </p>
+          </div>
         </div>
-        <p className="text-center text-[10px] text-gray-400 mt-3 uppercase tracking-widest font-bold">
-          TutorIA · Gemini Flash · RAG Activo · {subject.name} / {category.name}
-        </p>
       </div>
     </div>
   );

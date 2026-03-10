@@ -373,8 +373,15 @@ app.get("/api/chat/welcome", authenticateToken, async (req: any, res) => {
 
 // --- CHAT CON TUTOR IA ---
 app.post("/api/chat", authenticateToken, async (req: any, res) => {
-  const { message, subjectId, categoryId } = req.body;
-  console.log('[/api/chat] Petición recibida:', { userId: req.user?.id, subjectId, categoryId, message: message?.slice(0, 60) });
+  // Incluimos 'mode' y 'topic' para los modos de estudio interactivos
+  const { message, subjectId, categoryId, mode, topic } = req.body as {
+    message: string;
+    subjectId: string;
+    categoryId: string;
+    mode?: 'vf' | 'multiple' | 'demo' | 'teorico' | null;
+    topic?: string | null;
+  };
+  console.log('[/api/chat] Petición recibida:', { userId: req.user?.id, subjectId, categoryId, mode, message: message?.slice(0, 60) });
 
   if (!message?.trim()) return res.status(400).json({ error: "Mensaje vacío" });
 
@@ -424,8 +431,14 @@ app.post("/api/chat", authenticateToken, async (req: any, res) => {
     const topicsMastered: string[] = JSON.parse(progress.topicsMastered);
     const topicsStruggling: string[] = JSON.parse(progress.topicsStruggling);
 
+    // Parsear historial de ejercicios (últimos 10 para no saturar el prompt)
+    type ExerciseEntry = { exerciseId: string; correct: boolean | null; topic: string; timestamp: string };
+    // Usamos cast porque el cliente Prisma puede estar desactualizado respecto al schema
+    const profileAny = profile as any;
+    const exercisesHistory: ExerciseEntry[] = profileAny?.exercisesHistory ? JSON.parse(profileAny.exercisesHistory) : [];
+    const recentExercises = exercisesHistory.slice(-10);
+
     // ── 5. Describir el tipo de instancia en lenguaje natural ─────────────────
-    // Esto ayuda a la IA a entender el foco de la sesión
     const instanceFocusMap: Record<string, string> = {
       practico: "preparación de prácticos semanales y ejercicios de práctica",
       primer_parcial: "preparación específica para el Primer Parcial: teoría y ejercicios del primer bloque temático",
@@ -434,11 +447,77 @@ app.post("/api/chat", authenticateToken, async (req: any, res) => {
     };
     const instanceFocus = instanceFocusMap[categoryType] || "preparación general";
 
-    // ── 6. Construir el system prompt personalizado ────────────────────────────
+    // ── 6. Lógica de saludo condicional basada en tiempo de sesión ────────────
+    const SESSION_GAP_MINUTES = parseInt(process.env.SESSION_GAP_MINUTES || "5");
+    // Cast a any porque el campo lastInteraction fue recién añadido al schema
+    const userAny = user as any;
+    const lastInteraction: Date | null = userAny?.lastInteraction ?? null;
+    const now = new Date();
+    const isNewSession = !lastInteraction ||
+      (now.getTime() - lastInteraction.getTime()) > SESSION_GAP_MINUTES * 60 * 1000;
+
+    // Instrucciones de modo se construyen DESPUÉS de tener todos los datos
+    // Usamos funciones para evitar usar variables antes de su declaración
+    const getModeInstructions = (): string => {
+      if (!mode) return '';
+      if (mode === 'vf') return `
+═══════════════════════════════════════════════════
+MODO ACTIVO: VERDADERO O FALSO
+═══════════════════════════════════════════════════
+Sigue EXACTAMENTE este flujo:
+1. Presenta UNA afirmación de verdadero o falso a la vez.
+   ${topic ? `- Tema específico: "${topic}"` : '- Varía los temas (modo mixto de examen).'}
+2. Espera la respuesta del estudiante (Verdadero / Falso o V / F).
+3. Explica detalladamente por qué es verdadero o falso:
+   - Usa analogías simples para niveles bajos.
+   - Muestra el razonamiento paso a paso.
+   - Incluye fórmulas en LaTeX si aplica ($...$  o $$...$$).
+4. Pregunta si quiere continuar o cambiar de tema.
+5. Las afirmaciones deben ser del estilo de exámenes reales de FING.
+`;
+      if (mode === 'multiple') return `
+═══════════════════════════════════════════════════
+MODO ACTIVO: MÚLTIPLE OPCIÓN
+═══════════════════════════════════════════════════
+Sigue EXACTAMENTE este flujo:
+1. Presenta UNA pregunta con exactamente 4 opciones (A, B, C, D) a la vez.
+   ${topic ? `- Tema específico: "${topic}"` : '- Varía los temas (modo mixto de examen).'}
+2. Espera que el estudiante elija una opción.
+3. Explica CADA opción: por qué la correcta lo es y por qué las otras son erróneas.
+4. Usa analogías si el nivel del estudiante es bajo.
+5. Pregunta si quiere continuar con otra pregunta.
+`;
+      if (mode === 'demo') return `
+═══════════════════════════════════════════════════
+MODO ACTIVO: DEMOSTRACIONES
+═══════════════════════════════════════════════════
+${topic ? `Guía la demostración de: "${topic}"` : 'Pregunta qué teorema o propiedad quiere demostrar el estudiante.'}
+- Divide la demostración en pasos numerados y ordenados.
+- En cada paso: explica el razonamiento y usa LaTeX para las fórmulas.
+- Si el nivel es bajo, agrega intuición geométrica o analógicas.
+- Al terminar, resume el resultado clave.
+`;
+      if (mode === 'teorico') return `
+═══════════════════════════════════════════════════
+MODO ACTIVO: TEÓRICO
+═══════════════════════════════════════════════════
+${topic ? `El tema a repasar es: "${topic}"` : `Basándote en los temas débiles del estudiante (${topicsStruggling.length > 0 ? topicsStruggling.join(', ') : 'ninguno aún'}), sugiere 3 temas para repasar.`}
+Estructura tu explicación:
+1. Intuición o analogía ("¿por qué existe este concepto?")
+2. Definición formal con LaTeX ($$...$$).
+3. Dos o tres ejemplos concretos paso a paso.
+4. Un ejercicio de verificación al final.
+`;
+      return '';
+    };
+    const modeInstruction = getModeInstructions();
+
+    // ── 8. Construir el system prompt completo ────────────────────────────────
     const systemInstruction = `
 Eres TutorIA, un tutor experto y empático de la Facultad de Ingeniería (FING, Universidad de la República, Uruguay).
 Tu misión es preparar al estudiante "${user?.name || 'estudiante'}" para su evaluación en ${subjectName}.
 
+${isNewSession ? `SALUDO: El estudiante regresa después de un tiempo. Inicia con UN saludo breve y cálido (máximo 1 oración), del estilo "¡Volviste! Seguimos con ${categoryName} 💪". Luego responde normalmente.\n` : ''}
 ═══════════════════════════════════════════════════
 CONTEXTO DE LA SESIÓN
 ═══════════════════════════════════════════════════
@@ -457,49 +536,42 @@ ${knowledgeContext}
 ═══════════════════════════════════════════════════
 PERFIL DEL ESTUDIANTE
 ═══════════════════════════════════════════════════
-• Nivel de comprensión actual: ${progress.level}/5 (1=básico, 5=avanzado)
-• Nivel de abstracción (estilo de explicación): ${profile?.abstractionLevel || 1}/5
-• Interacciones previas en esta instancia: ${progress.interactionsCount}
-• Temas dominados: ${topicsMastered.length > 0 ? topicsMastered.join(', ') : 'ninguno registrado aún'}
-• Temas con dificultad: ${topicsStruggling.length > 0 ? topicsStruggling.join(', ') : 'ninguno registrado aún'}
+• Nivel de comprensión: ${progress.level}/5 (1=básico, 5=avanzado)
+• Nivel de abstracción: ${profile?.abstractionLevel || 1}/5
+• Interacciones en esta instancia: ${progress.interactionsCount}
+• Temas dominados: ${topicsMastered.length > 0 ? topicsMastered.join(', ') : 'ninguno aún'}
+• Temas débiles: ${topicsStruggling.length > 0 ? topicsStruggling.join(', ') : 'ninguno aún'}
+• Últimos ejercicios: ${recentExercises.length > 0 ? JSON.stringify(recentExercises) : 'ninguno aún'}
 
 ═══════════════════════════════════════════════════
-INSTRUCCIONES DE COMPORTAMIENTO
+INSTRUCCIONES GENERALES
 ═══════════════════════════════════════════════════
-1. Adapta la complejidad de tus respuestas al nivel del estudiante:
-   - Nivel 1-2: usa analogías simples, lenguaje informal, muchos ejemplos numéricos
-   - Nivel 3: balance entre intuición y rigor matemático
-   - Nivel 4-5: mayor formalismo, demostraciones, casos borde
-2. Si el estudiante da una respuesta incorrecta, corrígelo con paciencia y sin juzgarlo.
-3. Genera ejercicios cuando el estudiante lo pida, adecuados a su nivel y la instancia.
-4. Al final de cada respuesta extensa, ofrece un ejercicio corto o una pregunta de verificación.
-5. Halagos breves cuando el estudiante responde bien (no exagerado).
-6. Si detectas que domina un tema, puedes mencionarlo (ej: "Veo que tienes claro el concepto de límite").
-7. NUNCA inventes contenido que no esté en la base de conocimiento.
-8. Responde siempre en español rioplatense y con un tono motivador.
+1. Adapta la complejidad al nivel del estudiante (1-2: analogías, 4-5: formalismo).
+2. Si el estudiante da una respuesta incorrecta, corrígelo con paciencia.
+3. Genera ejercicios cuando el estudiante lo pida.
+4. Usa LaTeX: $...$ para inline, $$...$$ para bloques.
+5. Responde siempre en español rioplatense con tono motivador.
+${modeInstruction}
 `;
 
-    // ── 7. Llamar a la IA (o simular si no hay API key) ───────────────────────
+    // ── 9. Llamar a la IA ─────────────────────────────────────────────────────
     let responseText = "";
 
     if (!process.env.GEMINI_API_KEY) {
-      // Modo simulación: útil para desarrollo sin API key
-      responseText = `[SIMULACIÓN] Recibí tu pregunta sobre "${message}".\n\nContexto disponible de la instancia: ${knowledgeContext.slice(0, 200)}...\n\nConfigura GEMINI_API_KEY en .env para obtener respuestas reales.`;
+      responseText = `[SIMULACIÓN] Recibí tu pregunta sobre "${message}".\n\nContexto: ${knowledgeContext.slice(0, 200)}...\n\nConfigura GEMINI_API_KEY en .env para respuestas reales.`;
     } else {
       console.log('[/api/chat] Llamando a Gemini...');
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const response = await ai.models.generateContent({
         model: "gemini-3.1-flash-lite-preview",
         contents: message,
-        config: {
-          systemInstruction: systemInstruction,
-        },
+        config: { systemInstruction },
       });
       responseText = response.text || "Lo siento, no pude generar una respuesta. Intenta reformular tu pregunta.";
-      console.log('[/api/chat] Respuesta de Gemini recibida, longitud:', responseText.length);
+      console.log('[/api/chat] Respuesta de Gemini, longitud:', responseText.length);
     }
 
-    // ── 8. Guardar el intercambio en el historial de chat ─────────────────────
+    // ── 10. Guardar el intercambio en el historial ─────────────────────────────
     await prisma.chatMessage.createMany({
       data: [
         { userId: req.user.id, role: "user", content: message, subjectId, categoryId },
@@ -507,12 +579,8 @@ INSTRUCCIONES DE COMPORTAMIENTO
       ]
     });
 
-    // ── 9. Actualizar el progreso del usuario ─────────────────────────────────
-    // Heurística de nivel: si el mensaje es largo (>80 chars), el estudiante
-    // probablemente está reflexionando más → potencialmente sube de nivel
+    // ── 11. Actualizar progreso e historial ───────────────────────────────────
     const shouldIncreaseLevel =
-      message.length > 80 &&
-      progress.level < 5 &&
       progress.interactionsCount > 0 &&
       progress.interactionsCount % 10 === 0; // cada 10 interacciones, reevaluar
 
