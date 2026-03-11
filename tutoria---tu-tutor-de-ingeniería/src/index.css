@@ -1,14 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-header: "Montserrat", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 @layer base {
   body {
-    @apply bg-[#F8FAFC] text-slate-900 antialiased;
+    /* Fondo principal modo oscuro dominia */
+    @apply bg-[#030712] text-slate-400 antialiased;
   }
 }
 
@@ -21,3 +23,22 @@
   scrollbar-width: none;
 }
 
+/* Utilidades adicionales dominia */
+.bg-dominia-card {
+  background-color: #111827;
+}
+
+.text-dominia-gradient {
+  background: linear-gradient(90deg, #ec4899 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.bg-dominia-gradient {
+  background: linear-gradient(90deg, #ec4899 0%, #8b5cf6 100%);
+}
+
+.border-dominia-gradient {
+  border-image: linear-gradient(90deg, #ec4899 0%, #8b5cf6 100%) 1;
+}
