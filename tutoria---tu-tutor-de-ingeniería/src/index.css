@@ -1,33 +1,73 @@
+/*
+ * index.css — Estilos globales de la aplicación TutorIA
+ *
+ * Estructura de este archivo:
+ * 1. @import de fuentes → carga de Google Fonts (Inter, Montserrat, JetBrains Mono)
+ * 2. @import "tailwindcss" → activa Tailwind CSS v4 (basado en CSS nativo, sin config JS)
+ * 3. @theme → define las variables de fuente que Tailwind usará con font-sans, font-header, etc.
+ * 4. @layer base → estilos aplicados a elementos HTML base (body)
+ * 5. Clases utilitarias personalizadas para el design system "Dominia"
+ */
+
+/* ─── Fuentes ──────────────────────────────────────────────────────────────────
+   Inter:       fuente principal del cuerpo de texto (más legible en pantalla)
+   Montserrat:  fuente de títulos y encabezados (más impactante visualmente)
+   JetBrains Mono: fuente para bloques de código y fórmulas mono-espaciadas
+*/
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* Activa Tailwind CSS v4. En esta versión las clases se generan dinámicamente
+   a partir del CSS, sin necesidad de tailwind.config.js */
 @import "tailwindcss";
 
+/* ─── Variables de tema ────────────────────────────────────────────────────────
+   @theme permite definir variables CSS personalizadas que Tailwind reconoce
+   como tokens de diseño. Así, clases como `font-sans` o `font-header` usan
+   estas fuentes en lugar de los valores por defecto de Tailwind.
+*/
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-header: "Montserrat", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* ─── Estilos base ─────────────────────────────────────────────────────────────
+   @layer base aplica estilos de menor especificidad que las utilidades de Tailwind,
+   permitiendo que las clases utilitarias los sobreescriban fácilmente.
+*/
 @layer base {
   body {
-    /* Fondo principal modo oscuro dominia */
+    /* Fondo #030712 = negro azulado oscuro (identidad visual "Dominia")
+       antialiased = suaviza las fuentes en pantallas de alta densidad (retina) */
     @apply bg-[#030712] text-slate-400 antialiased;
   }
 }
 
-/* Estilos para el chat */
+/* ─── Scrollbar oculta ─────────────────────────────────────────────────────────
+   La clase .scrollbar-hide elimina la barra de scroll visible en el área de chat
+   sin perder la funcionalidad de scroll. Compatible con Chrome, Firefox y Edge.
+*/
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
 .scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+  -ms-overflow-style: none;  /* Internet Explorer / Edge clásico */
+  scrollbar-width: none;     /* Firefox */
 }
 
-/* Utilidades adicionales dominia */
+/* ─── Design System "Dominia" ─────────────────────────────────────────────────
+   Clases reutilizables que encapsulan la paleta visual consistente de la app.
+   El gradiente principal va de rosa (#ec4899) a violeta (#8b5cf6),
+   inspirado en el branding de la plataforma.
+*/
+
+/* Fondo de tarjetas (más oscuro que el fondo base, para crear profundidad) */
 .bg-dominia-card {
   background-color: #111827;
 }
 
+/* Texto con gradiente (rosa → violeta). Técnica: background-clip: text
+   recorta el degradado para que solo sea visible dentro de los caracteres */
 .text-dominia-gradient {
   background: linear-gradient(90deg, #ec4899 0%, #8b5cf6 100%);
   -webkit-background-clip: text;
@@ -35,10 +75,25 @@
   background-clip: text;
 }
 
+/* Fondo sólido con el gradiente (botones principales, avatares, etc.) */
 .bg-dominia-gradient {
   background: linear-gradient(90deg, #ec4899 0%, #8b5cf6 100%);
 }
 
+/* Borde con gradiente (requiere border-image, solo funciona en bordes sólidos) */
 .border-dominia-gradient {
   border-image: linear-gradient(90deg, #ec4899 0%, #8b5cf6 100%) 1;
+}
+
+/* ─── Animación glow-pulse ────────────────────────────────────────────────────
+   Brillo pulsante utilizado por el StudyTimer cuando está pausado.
+   Crea un efecto de shadow que "respira" para llamar la atención del usuario.
+*/
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(251, 191, 36, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(251, 191, 36, 0.35), 0 0 40px rgba(236, 72, 153, 0.1);
+  }
 }
