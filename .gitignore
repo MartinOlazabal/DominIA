@@ -1,0 +1,15 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Archivos de Windows que no deben subirse al repo
+*.lnk
+*.zip
+
+# Archivos de sistema
+Thumbs.db
