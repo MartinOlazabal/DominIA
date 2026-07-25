@@ -1,7 +1,3 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
-
 # TutorIA — Tu Tutor de Ingeniería con IA
 
 Tutor personalizado con IA para estudiantes de la Facultad de Ingeniería (FING, Udelar). Preparación por **materia** e **instancia** (Parcial, Examen, Prácticos) con base de conocimiento RAG y seguimiento de progreso individual.
