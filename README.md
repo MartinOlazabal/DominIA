@@ -1,9 +1,6 @@
 # TutorIA — Tu Tutor de Ingeniería con IA
 
 Tutor personalizado con IA para estudiantes de la Facultad de Ingeniería (FING, Udelar). Preparación por **materia** e **instancia** (Parcial, Examen, Prácticos) con base de conocimiento RAG y seguimiento de progreso individual.
-
-View your app in AI Studio: https://ai.studio/apps/b2295662-c654-4cb2-80f4-d3cd2b579b11
-
 ---
 
 ## 🚀 Inicio Rápido
